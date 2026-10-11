@@ -28,6 +28,7 @@ public class RestoreWindow:Form {
     readonly DataGridView grid=new DataGridView {Dock=DockStyle.Fill,ReadOnly=true,AllowUserToAddRows=false,AllowUserToDeleteRows=false,
         RowHeadersVisible=false,AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill,SelectionMode=DataGridViewSelectionMode.FullRowSelect,MultiSelect=false};
     readonly Button restore=Ui.Button("Restore"),refresh=Ui.Button("Refresh preview"),recover=Ui.Button("Recover interrupted restore"),report=Ui.Button("Open report");
+    readonly CheckBox createRecoverySnapshot=new CheckBox {Text="create recovery snapshot",Checked=true,AutoSize=true,Margin=new Padding(8,6,8,6)};
     Plan plan;
     bool busy;
     string reportText;
@@ -38,9 +39,10 @@ public class RestoreWindow:Form {
     public RestoreWindow(string folder,Snapshot saved,string code) {
         root=Engine.RootPath(folder);snapshot=saved;source=code;
         Ui.Setup(this,"Restore Organization - "+snapshot.Name);
-        TableLayoutPanel layout=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=4,Padding=new Padding(12)};
+        TableLayoutPanel layout=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=5,Padding=new Padding(12)};
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         heading.Text="Arrangement: "+snapshot.Name+"\r\nRestore in: "+root+"\r\nSaved: "+snapshot.CreatedUtc+
             "\r\nCurrent file contents are preserved. Missing, ambiguous, and conflicting entries are skipped.";
         foreach(string column in new[]{"Status","Current location","Saved location","Details"}) grid.Columns.Add(column,column);
@@ -48,7 +50,7 @@ public class RestoreWindow:Form {
         grid.AutoSizeRowsMode=DataGridViewAutoSizeRowsMode.AllCells;grid.DefaultCellStyle.WrapMode=DataGridViewTriState.True;
         FlowLayoutPanel buttons=new FlowLayoutPanel {Dock=DockStyle.Fill,AutoSize=true,WrapContents=true};
         buttons.Controls.Add(restore);buttons.Controls.Add(refresh);buttons.Controls.Add(recover);buttons.Controls.Add(report);
-        layout.Controls.Add(heading,0,0);layout.Controls.Add(grid,0,1);layout.Controls.Add(status,0,2);layout.Controls.Add(buttons,0,3);Controls.Add(layout);
+        layout.Controls.Add(heading,0,0);layout.Controls.Add(grid,0,1);layout.Controls.Add(createRecoverySnapshot,0,2);layout.Controls.Add(status,0,3);layout.Controls.Add(buttons,0,4);Controls.Add(layout);
         restore.Enabled=false;recover.Enabled=false;report.Enabled=false;
         Shown+=async (s,e)=>await RefreshAsync();
         refresh.Click+=async(s,e)=>await RefreshAsync();
@@ -64,7 +66,7 @@ public class RestoreWindow:Form {
         FormClosing+=(s,e)=>{if(busy){e.Cancel=true;status.Text="Please wait for the current operation to finish before closing."; }};
     }
     void SetBusy(bool value) {
-        busy=value;restore.Enabled=false;refresh.Enabled=!value;recover.Enabled=false;UseWaitCursor=value;
+        busy=value;restore.Enabled=false;refresh.Enabled=!value;recover.Enabled=false;createRecoverySnapshot.Enabled=!value;UseWaitCursor=value;
     }
     void Progress(string text) {
         if(!IsDisposed&&IsHandleCreated) BeginInvoke((Action)(()=>status.Text=text));
@@ -97,10 +99,11 @@ public class RestoreWindow:Form {
         } catch(Exception e) {SetBusy(false);status.Text="Preview could not be completed.";Ui.Error(this,e);}
     }
     async Task RestoreAsync() {
-        if(plan==null)return;SetBusy(true);status.Text="Preparing undo snapshot and restoring...";
+        if(plan==null)return;bool saveRecovery=createRecoverySnapshot.Checked;
+        SetBusy(true);status.Text=saveRecovery?"Preparing recovery snapshot and restoring...":"Restoring...";
         try {
             Plan approved=plan;
-            RestoreResult result=await Task.Run(()=>Engine.Restore(approved,(snap,path)=>Engine.WriteScript(snap,path,source),Progress));
+            RestoreResult result=await Task.Run(()=>Engine.Restore(approved,(snap,path)=>Engine.WriteScript(snap,path,source),Progress,saveRecovery));
             reportText=result.ReportText;report.Enabled=true;MessageBox.Show(this,result.Message,"Restore Organization",MessageBoxButtons.OK,MessageBoxIcon.Information);
         } catch(Exception e) {Ui.Error(this,e);}
         finally {SetBusy(false);}

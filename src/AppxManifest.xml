@@ -7,7 +7,7 @@
  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
  IgnorableNamespaces="uap uap10 rescap com desktop4 desktop5">
- <Identity Name="Phill.RestoreOrganization.ContextMenu" Publisher="CN=Restore Organization Local" Version="1.0.5.0" ProcessorArchitecture="x64"/>
+ <Identity Name="Phill.RestoreOrganization.ContextMenu" Publisher="CN=Restore Organization Local" Version="1.0.6.0" ProcessorArchitecture="x64"/>
  <Properties><DisplayName>Restore Organization</DisplayName><PublisherDisplayName>Restore Organization</PublisherDisplayName><Logo>Assets\StoreLogo.png</Logo></Properties>
  <Resources><Resource Language="en-us"/></Resources>
  <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0"/></Dependencies>

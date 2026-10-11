@@ -30,7 +30,7 @@ public static class EngineTests {
             if(args.Length>0&&args[0]=="--crash") {
                 string root=args[1];Snapshot s=Engine.ReadSnapshot(File.ReadAllText(args[2]));
                 int seen=0;Engine.FaultHook=eventName=>{if(eventName==args[3]&&++seen==Int32.Parse(args[4]))Environment.Exit(77);};
-                Apply(root,s);return 78;
+                Engine.Restore(Engine.Preview(root,s,null),Write,null,args.Length<6||args[5]!="no-undo");return 78;
             }
             if(args.Length>0&&(args[0]=="--hold-lock"||args[0]=="--legacy-lock")) {
                 string root=args[1];
@@ -51,7 +51,7 @@ public static class EngineTests {
             }
             work=Path.GetFullPath(args.Length==2&&args[0]=="--work"?args[1]:"tests\\work");Directory.CreateDirectory(work);
             Application.EnableVisualStyles();
-            Basic();Cleanup();LockLifetime();Conflicts();IdentityAndDuplicates();Recovery();FolderNames();Validation();Scripts();StandaloneApply();Scale();Render();
+            Basic();OptionalRecovery();Cleanup();LockLifetime();Conflicts();IdentityAndDuplicates();Recovery();FolderNames();Validation();Scripts();StandaloneApply();Scale();Render();
             Console.WriteLine("PASS: "+checks+" checks");File.WriteAllText("build\\test-result.txt","PASS: "+checks+" checks\r\n"+DateTime.UtcNow.ToString("o"));return 0;
         } catch(Exception e) {Console.Error.WriteLine(e.ToString());return 1;}
     }
@@ -85,6 +85,30 @@ public static class EngineTests {
         string relocated=root+"-relocated";Directory.Move(root,relocated);
         Check(Engine.Preview(relocated,author,null).MoveCount==1,"whole collection can be relocated");
     }
+    static void OptionalRecovery() {
+        string root=Fixture("without-recovery-snapshot");Put(root,"Books\\one.epub","content");Snapshot saved=Capture(root);
+        string script=Engine.Full(root,"Restore.cmd");Write(saved,script);byte[] scriptBytes=File.ReadAllBytes(script);
+        Move(root,"Books\\one.epub","moved.epub");
+        Action<Snapshot,string> forbidden=(s,p)=>{throw new Exception("Snapshot writer called while option disabled.");};
+        RestoreResult result=Engine.Restore(Engine.Preview(root,saved,null),forbidden,null,false);
+        Check(result.Moved==1&&Text(root,"Books\\one.epub")=="content","restore without recovery snapshot preserves content and saved location");
+        Check(result.Undo==null&&Directory.GetFiles(root,"Undo - *.cmd").Length==0,"disabled option skips snapshot writer and creates no undo CMD");
+        Check(result.Message.Contains("disabled")&&result.ReportText.Contains("Not created"),"result and report describe disabled recovery snapshot");
+        Check(scriptBytes.SequenceEqual(File.ReadAllBytes(script))&&!Directory.Exists(Engine.Full(root,Engine.StateFolder)),"disabled option preserves existing snapshot and removes recovery folder");
+        Move(root,"Books\\one.epub","moved.epub");Dictionary<string,string> before=Tree(root);bool fired=false;
+        Engine.FaultHook=e=>{if(e=="staged"&&!fired){fired=true;throw new IOException("Injected failure without undo.");}};
+        try {ExpectError(()=>Engine.Restore(Engine.Preview(root,saved,null),forbidden,null,false),"disabled recovery snapshot still reports interrupted restore");}
+        finally {Engine.FaultHook=null;}
+        Check(Equal(before,Tree(root))&&!Directory.Exists(Engine.Full(root,Engine.StateFolder)),"automatic rollback and cleanup work without an undo script");
+        string data=Path.Combine(work,Guid.NewGuid().ToString("N")+".json");File.WriteAllText(data,Engine.Json(saved));
+        ProcessStartInfo info=new ProcessStartInfo(Assembly.GetExecutingAssembly().Location,"--crash "+Program.QuoteArg(root)+" "+Program.QuoteArg(data)+" staged 1 no-undo");
+        info.UseShellExecute=false;info.CreateNoWindow=true;
+        using(Process process=Process.Start(info)){process.WaitForExit();Check(process.ExitCode==77,"actual process interruption without recovery snapshot");}
+        Check(Engine.Pending(root).Count==1&&Directory.GetFiles(root,"Undo - *.cmd").Length==0,"disabled snapshot retains necessary interrupted-restore journal");
+        Engine.Recover(root,null);
+        Check(Equal(before,Tree(root))&&!Directory.Exists(Engine.Full(root,Engine.StateFolder)),"interrupted restore recovers and removes folder with snapshot disabled");
+    }
+
     static string SeedRun(string root,string name,string state) {
         string run=Engine.StateFolder+"\\runs\\"+name;
         Directory.CreateDirectory(Engine.Full(root,run+"\\stage"));
@@ -305,6 +329,11 @@ public static class EngineTests {
         }
         string root=Fixture("preview-ui");Put(root,"By Author\\Book.epub","Book");Snapshot s=Capture(root);Move(root,"By Author\\Book.epub","By Subject\\Renamed.epub");Put(root,"New.epub","new");
         using(RestoreWindow f=new RestoreWindow(root,s,code)) {
+            CheckBox option=(CheckBox)typeof(RestoreWindow).GetField("createRecoverySnapshot",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(f);
+            Check(option.Checked&&option.Text=="create recovery snapshot","restore window enables create recovery snapshot by default with requested label");
+            option.Checked=false;MethodInfo setBusy=typeof(RestoreWindow).GetMethod("SetBusy",BindingFlags.Instance|BindingFlags.NonPublic);
+            setBusy.Invoke(f,new object[]{true});Check(!option.Enabled,"recovery snapshot option disabled during operation");
+            setBusy.Invoke(f,new object[]{false});Check(option.Enabled&&!option.Checked,"busy and preview updates preserve unchecked choice");option.Checked=true;
             DataGridView grid=(DataGridView)typeof(RestoreWindow).GetField("grid",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(f);
             foreach(PlanItem item in Engine.Preview(root,s,null).Items)grid.Rows.Add(item.Status,item.Source,item.Destination,item.Detail);
             f.StartPosition=FormStartPosition.Manual;f.Location=new Point(-32000,-32000);f.ShowInTaskbar=false;f.Opacity=0;f.Show();

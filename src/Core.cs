@@ -438,16 +438,23 @@ public static class Engine {
         }
     }
     public static RestoreResult Restore(Plan approved,Action<Snapshot,string> writeScript,Action<string> progress) {
+        return Restore(approved,writeScript,progress,true);
+    }
+    public static RestoreResult Restore(Plan approved,Action<Snapshot,string> writeScript,Action<string> progress,bool createRecoverySnapshot) {
         string root=RootPath(approved.Root);
         using(CollectionLock guard=Lock(root)) {
             if(Pending(root).Count>0) throw new IOException("An interrupted restore must be recovered first.");
             Plan plan=Preview(root,approved.Snapshot,progress);
             if(plan.Signature!=approved.Signature) throw new IOException("The folder changed after preview. Refresh the preview before restoring.");
-            if(plan.Scan.Errors.Count>0) throw new IOException("Unreadable entries prevent a complete undo snapshot. Resolve the listed errors and refresh.");
+            if(plan.Scan.Errors.Count>0) throw new IOException("Unreadable entries prevent a safe restore. Resolve the listed errors and refresh.");
             string runId=DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N");
             string runRelative=StateFolder+"\\runs\\"+runId,run=Full(root,runRelative);
             NoLinks(root,run);Directory.CreateDirectory(Path.Combine(run,"stage"));
-            string undo=Path.Combine(root,"Undo - "+runId+".cmd");writeScript(FromScan(root,"Undo before "+plan.Snapshot.Name,plan.Scan),undo);
+            string undo=null;
+            if(createRecoverySnapshot) {
+                undo=Path.Combine(root,"Undo - "+runId+".cmd");
+                writeScript(FromScan(root,"Undo before "+plan.Snapshot.Name,plan.Scan),undo);
+            }
             List<PlanItem> moves=plan.Items.Where(x=>x.Status=="Move").ToList();
             Journal j=new Journal {FolderRenames=new List<FolderRename>(),Version=1,State="Prepared",SnapshotName=plan.Snapshot.Name,OriginalDirectories=plan.Scan.Directories.ToList(),
                 NewDirectories=plan.Snapshot.Directories.Where(x=>!Directory.Exists(Full(root,x))).ToList(),
@@ -500,10 +507,10 @@ public static class Engine {
                 j.State="Completed";DurableWrite(journalPath,Json(j));completed=true;
                 StringBuilder log=new StringBuilder();
                 log.AppendLine("Snapshot: "+plan.Snapshot.Name).AppendLine("Folder: "+root).AppendLine("UTC: "+DateTime.UtcNow.ToString("o"));
-                log.AppendLine("Moved and verified: "+moves.Count).AppendLine("Undo script: "+undo).AppendLine();
+                log.AppendLine("Moved and verified: "+moves.Count).AppendLine("Recovery snapshot: "+(undo??"Not created (option disabled).")).AppendLine();
                 foreach(PlanItem item in plan.Items) log.AppendLine(item.Status+" | "+item.Source+" -> "+item.Destination+" | "+item.Detail);
                 return new RestoreResult {Moved=moves.Count,Undo=undo,ReportText=log.ToString(),
-                    Message="Restoration completed. "+moves.Count+" files moved and content verified.\r\nSkipped and unmatched entries are listed in the report.\r\nAn independent undo script was saved in the collection folder."};
+                    Message="Restoration completed. "+moves.Count+" files moved and content verified.\r\nSkipped and unmatched entries are listed in the report.\r\n"+(createRecoverySnapshot?"An independent recovery snapshot was saved in the collection folder.":"Recovery snapshot creation was disabled.")};
             } catch(Exception original) {
                 foreach(FileStream h in handles) h.Dispose();handles.Clear();
                 if(completed) throw new IOException("Files were restored and verified, but preparing the report failed: "+original.Message,original);

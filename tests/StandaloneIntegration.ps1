@@ -34,3 +34,11 @@ if(-not [IO.File]::Exists([IO.Path]::Combine($root,'copied.epub'))) {throw 'Embe
 'PASS: independent embedded restore and undo under Windows PowerShell 5.1'
 
 if([IO.Directory]::Exists([IO.Path]::Combine($root,'.restore-organization'))) {throw 'Embedded restore or undo left a recovery folder after successful completion.'}
+
+$previousUndoCount=@(Get-ChildItem -LiteralPath $root -Filter 'Undo - *.cmd').Count
+$planWithoutRecovery=[RestoreOrganization.Engine]::Preview($root,$snapshot,$null)
+$resultWithoutRecovery=[RestoreOrganization.Engine]::Restore($planWithoutRecovery,{throw 'Disabled snapshot writer was invoked.'},$null,$false)
+if($null -ne $resultWithoutRecovery.Undo -or @(Get-ChildItem -LiteralPath $root -Filter 'Undo - *.cmd').Count -ne $previousUndoCount) {throw 'Disabled option created an undo script.'}
+if(-not [IO.File]::Exists([IO.Path]::Combine($root,'Books\one.epub'))) {throw 'Disabled recovery snapshot prevented standalone restore.'}
+if([IO.Directory]::Exists([IO.Path]::Combine($root,'.restore-organization'))) {throw 'Disabled snapshot restore left a recovery folder.'}
+'PASS: standalone restore with recovery snapshot disabled'
