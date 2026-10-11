@@ -68,7 +68,7 @@ public class CreatorWindow:Form {
         FlowLayoutPanel actions=new FlowLayoutPanel {AutoSize=true,Dock=DockStyle.Fill};
         actions.Controls.Add(create);actions.Controls.Add(open);layout.Controls.Add(actions,0,3);layout.SetColumnSpan(actions,3);
         details.Text="1. Choose your collection folder and give this arrangement a name, such as By Author.\r\n"+
-            "2. Click Create snapshot. A single Restore - By Author.cmd file is saved in that folder.\r\n"+
+            "2. Click Create snapshot. A single Snapshot - By Author.cmd file is saved in that folder.\r\n"+
             "3. Reorganize your files and save another named snapshot, such as By Subject.\r\n"+
             "4. Double-click either script to preview its moves, then click Restore.\r\n\r\n"+
             "The scripts work without this application installed. Keep each script at the root of its collection.\r\n"+
@@ -114,8 +114,8 @@ public class CreatorWindow:Form {
                     Snapshot snapshot=Engine.Capture(root,label,Progress);
                     string safe=label;foreach(char c in Path.GetInvalidFileNameChars())safe=safe.Replace(c,'_');safe=safe.TrimEnd('.',' ');
                     if(safe.Length>80)safe=safe.Substring(0,80);if(safe.Length==0)safe="Arrangement";
-                    string candidate=Path.Combine(root,"Restore - "+safe+".cmd");int n=2;
-                    while(File.Exists(candidate)||Directory.Exists(candidate))candidate=Path.Combine(root,"Restore - "+safe+" ("+(n++)+").cmd");
+                    string candidate=Path.Combine(root,"Snapshot - "+safe+".cmd");int n=2;
+                    while(File.Exists(candidate)||Directory.Exists(candidate))candidate=Path.Combine(root,"Snapshot - "+safe+" ("+(n++)+").cmd");
                     Engine.WriteScript(snapshot,candidate,Program.RestoreSource());return candidate;
                 }
             });

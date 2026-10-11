@@ -11,7 +11,7 @@ For the separately packaged application ZIP, follow these steps:
 1. Open **Restore Organization.exe** in the extracted application folder.
 2. Choose the root of your ebook collection.
 3. Name the arrangement, for example **By Author**, and click **Create snapshot**.
-4. The application saves **Restore - By Author.cmd** inside the collection.
+4. The application saves **Snapshot - By Author.cmd** inside the collection.
 5. Arrange the same collection differently and create another snapshot, for example **By Subject**.
 6. Double-click either saved script. Inspect the preview and click **Restore**.
 
