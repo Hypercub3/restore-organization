@@ -40,7 +40,7 @@ Changing package identity, publisher, or application ID requires keeping AppxMan
 
     .\test.ps1
 
-Tests create unique fixtures only under tests/work. They verify content hashes, arrangements, conflicts, identity changes, independent script previews, true process interruptions, recovery, and hundreds of files. Offscreen Windows Forms renders are saved under build for visual inspection. The test executable is a build artifact and is not included in the user ZIP.
+Tests create unique fixtures under tests/work by default. To run against local storage outside synchronization, pass -WorkDirectory with a dedicated temporary fixture directory. They verify content hashes, arrangements, conflicts, identity changes, independent script previews, true process interruptions, recovery, and hundreds of files. Offscreen Windows Forms renders are saved under build for visual inspection. The test executable is a build artifact and is not included in the user ZIP.
 
 The optional native COM test requires w64devkit. The portable engine suite does not.
 

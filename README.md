@@ -65,13 +65,13 @@ Before applying an arrangement, a complete **Undo - timestamp-id.cmd** snapshot 
 
 Undo also preserves current content. It cannot recover a deleted file or reverse edits to an ebook.
 
-Recovery journals, staging files, and reports are stored in **.restore-organization** inside the collection. Keep that folder until any interrupted operation has been recovered. Journals are written before moves and flushed to disk; filesystem and power-loss behavior still depends on Windows and the storage device.
+Recovery journals and staging files are stored temporarily in **.restore-organization** inside the collection. After successful snapshot creation, restoration, or recovery, the entire recognized recovery folder is removed, including its owner marker and lock file. The collection retains its content and standalone .cmd snapshot/undo scripts. Older completed runs and reports are cleared when the collection is next used. Unfinished, damaged, unrecognized, or in-use data and any leftover staged files are retained; cleanup failures are retried on the next operation. Keep the recovery folder until any interrupted operation has been recovered. Journals are written before moves and flushed to disk; filesystem and power-loss behavior still depends on Windows and the storage device.
 
 After an ordinary failure the engine attempts to return participating files to their pre-restore locations. If an application or machine stops abruptly, reopen a saved restore script and use **Recover interrupted restore**. Recovery restores the arrangement from before that attempt. New operations are blocked until recovery finishes.
 
 If a new entry blocks recovery, it is preserved and recovery remains pending. Resolve the reported obstruction and try recovery again. Never delete the recovery folder to clear this error; staged files may be inside it.
 
-**Open report** shows the operation's moved, unchanged, skipped, and unmatched entries. Completed journals are retained for auditing. Snapshot scripts, undo scripts, and recognized recovery data are excluded from snapshots. An existing unrecognized folder using the reserved name is reported, rather than silently excluded.
+**Open report** shows the latest operation's moved, unchanged, skipped, and unmatched entries from memory while the restore window remains open. Reports are no longer saved in the collection. Standalone snapshot and undo scripts contain their own arrangement data; recovery cleanup does not change them. Existing scripts embed the version of the program used to create them, so create new snapshots to use automatic cleanup when running a script. Snapshot scripts, undo scripts, and recognized recovery data are excluded from snapshots. An existing unrecognized folder using the reserved name is reported, rather than silently excluded.
 
 The **Choose folder** button opens the Windows Explorer-style folder picker with an address bar, search, and navigation sidebar. It starts at the collection folder already entered when that folder is available. Select a folder and click **Select folder**; cancelling leaves the collection path unchanged.
 

@@ -32,9 +32,26 @@ public static class EngineTests {
                 int seen=0;Engine.FaultHook=eventName=>{if(eventName==args[3]&&++seen==Int32.Parse(args[4]))Environment.Exit(77);};
                 Apply(root,s);return 78;
             }
-            work=Path.GetFullPath("tests\\work");Directory.CreateDirectory(work);
+            if(args.Length>0&&(args[0]=="--hold-lock"||args[0]=="--legacy-lock")) {
+                string root=args[1];
+                if(args[0]=="--hold-lock") {
+                    using(Engine.CollectionLock guard=Engine.Lock(root)) {
+                        Console.WriteLine("LOCKED");Console.Out.Flush();
+                        while(!File.Exists(args[2]))System.Threading.Thread.Sleep(10);
+                    }
+                } else {
+                    Directory.CreateDirectory(Engine.Full(root,Engine.StateFolder));
+                    Put(root,Engine.StateFolder+"\\owner.txt","Restore Organization recovery data version 1");
+                    using(FileStream guard=new FileStream(Engine.Full(root,Engine.StateFolder+"\\operation.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)) {
+                        Console.WriteLine("LOCKED");Console.Out.Flush();
+                        while(!File.Exists(args[2]))System.Threading.Thread.Sleep(10);
+                    }
+                }
+                return 0;
+            }
+            work=Path.GetFullPath(args.Length==2&&args[0]=="--work"?args[1]:"tests\\work");Directory.CreateDirectory(work);
             Application.EnableVisualStyles();
-            Basic();Conflicts();IdentityAndDuplicates();Recovery();FolderNames();Validation();Scripts();StandaloneApply();Scale();Render();
+            Basic();Cleanup();LockLifetime();Conflicts();IdentityAndDuplicates();Recovery();FolderNames();Validation();Scripts();StandaloneApply();Scale();Render();
             Console.WriteLine("PASS: "+checks+" checks");File.WriteAllText("build\\test-result.txt","PASS: "+checks+" checks\r\n"+DateTime.UtcNow.ToString("o"));return 0;
         } catch(Exception e) {Console.Error.WriteLine(e.ToString());return 1;}
     }
@@ -56,7 +73,8 @@ public static class EngineTests {
         Check(Text(root,"Extras\\new.epub")=="new book","new file remains untouched");
         Check(Directory.Exists(Engine.Full(root,"Empty"))&&Directory.Exists(Engine.Full(root,"UnrelatedEmpty")),"saved and unrelated empty folders retained");
         Check(!Directory.Exists(Engine.Full(root,"Subjects")),"only ancestors emptied by moves cleaned up");
-        Check(File.Exists(result.Undo)&&File.Exists(result.Report),"independent undo script and report created");
+        Check(File.Exists(result.Undo)&&result.ReportText.Contains("Moved and verified: 2"),"independent undo script and in-memory report created");
+        Check(!Directory.Exists(Engine.Full(root,Engine.StateFolder)),"successful restore removes the entire recovery folder");
         Check(Engine.Pending(root).Count==0,"successful journal marked completed");
         Apply(root,subject);Check(Text(root,"Subjects\\Math\\renamed.epub")=="edited book a","switch back to second arrangement");
         Apply(root,author);Check(Engine.Preview(root,author,null).MoveCount==0,"repeat restoration is idempotent");
@@ -66,6 +84,70 @@ public static class EngineTests {
         Apply(root,subject);Check(Text(root,"Subjects\\Math\\renamed.epub")=="edited book a","remaining files restored despite missing file");
         string relocated=root+"-relocated";Directory.Move(root,relocated);
         Check(Engine.Preview(relocated,author,null).MoveCount==1,"whole collection can be relocated");
+    }
+    static string SeedRun(string root,string name,string state) {
+        string run=Engine.StateFolder+"\\runs\\"+name;
+        Directory.CreateDirectory(Engine.Full(root,run+"\\stage"));
+        Directory.CreateDirectory(Engine.Full(root,run+"\\foldercase"));
+        Journal j=new Journal {Version=1,State=state,Moves=new List<MoveRecord>(),OriginalDirectories=new List<string>(),
+            NewDirectories=new List<string>(),FolderRenames=new List<FolderRename>()};
+        Put(root,run+"\\journal.json",Engine.Json(j));Put(root,run+"\\report.txt","old report");
+        return run;
+    }
+    static void Cleanup() {
+        string root=Fixture("cleanup");Put(root,"book.epub","book");Snapshot saved=Capture(root);
+        string script=Engine.Full(root,"Restore.cmd");Write(saved,script);byte[] original=File.ReadAllBytes(script);
+        Engine.CollectionLock initial=Engine.Lock(root);
+        string done=SeedRun(root,"old-completed","Completed"),recovered=SeedRun(root,"old-recovered","Recovered");
+        string pending=SeedRun(root,"unfinished","Prepared"),staged=SeedRun(root,"leftover-stage","Completed");
+        string unknown=SeedRun(root,"unknown-entry","Recovered"),damaged=SeedRun(root,"damaged","Completed");
+        Put(root,staged+"\\stage\\000000","staged book");Put(root,unknown+"\\user.epub","user book");
+        Put(root,damaged+"\\journal.json","invalid journal");initial.Dispose();
+        using(Engine.CollectionLock guard=Engine.Lock(root)) {
+            Check(!Directory.Exists(Engine.Full(root,done))&&!Directory.Exists(Engine.Full(root,recovered)),"older completed and recovered runs cleaned on next operation");
+            string active=SeedRun(root,"active-lock","Completed");
+            ExpectError(()=>{using(Engine.CollectionLock second=Engine.Lock(root)) {} },"cleanup cannot run while another operation holds the lock");
+            Check(Directory.Exists(Engine.Full(root,active)),"failed concurrent operation leaves active run untouched");
+        }
+        Check(File.Exists(Engine.Full(root,pending+"\\journal.json"))&&File.Exists(Engine.Full(root,damaged+"\\journal.json")),"unfinished and damaged journals preserved by cleanup");
+        Check(Text(root,staged+"\\stage\\000000")=="staged book"&&Text(root,unknown+"\\user.epub")=="user book","cleanup retains leftover staged files and unknown entries");
+        Check(original.SequenceEqual(File.ReadAllBytes(script))&&Engine.Inspect(root,"book.epub").Hash==saved.Files[0].Hash,"cleanup leaves standalone snapshot bytes and saved arrangement unchanged");
+        string retry=Fixture("cleanup-retry");Engine.CollectionLock seed=Engine.Lock(retry);
+        string locked=SeedRun(retry,"locked-report","Completed");
+        using(FileStream report=new FileStream(Engine.Full(retry,locked+"\\report.txt"),FileMode.Open,FileAccess.ReadWrite,FileShare.None)) {
+            seed.Dispose();
+            using(Engine.CollectionLock guard=Engine.Lock(retry)) {}
+            Check(File.Exists(Engine.Full(retry,locked+"\\journal.json")),"cleanup failure preserves journal and allows the operation to continue");
+        }
+        using(Engine.CollectionLock guard=Engine.Lock(retry)) {}
+        Check(!Directory.Exists(Engine.Full(retry,Engine.StateFolder)),"cleanup retries and removes the entire folder after report is unlocked");
+    }
+    static void LockLifetime() {
+        string root=Fixture("lock-lifetime");Put(root,"book.epub","book");Snapshot saved=Capture(root);
+        string script=Engine.Full(root,"Restore.cmd");
+        using(Engine.CollectionLock guard=Engine.Lock(root)) {Write(saved,script);}
+        Check(!Directory.Exists(Engine.Full(root,Engine.StateFolder))&&Directory.GetFiles(root).Length==2,"snapshot creation leaves only collection content and CMD snapshot");
+        using(Engine.CollectionLock guard=Engine.Lock(root)) {SeedRun(root,"older-completed","Completed");}
+        Check(!Directory.Exists(Engine.Full(root,Engine.StateFolder)),"idle legacy metadata and completed runs removed together");
+        foreach(string mode in new[]{"--hold-lock","--legacy-lock"}) {
+            string release=Path.Combine(work,Guid.NewGuid().ToString("N")+".release");
+            ProcessStartInfo info=new ProcessStartInfo(Assembly.GetExecutingAssembly().Location,mode+" "+Program.QuoteArg(root)+" "+Program.QuoteArg(release));
+            info.UseShellExecute=false;info.CreateNoWindow=true;info.RedirectStandardOutput=true;
+            using(Process process=Process.Start(info)) {
+                try {
+                    Check(process.StandardOutput.ReadLine()=="LOCKED","child acquired "+mode);
+                    ExpectError(()=>{using(Engine.CollectionLock guard=Engine.Lock(root)) {}},"separate process "+mode+" blocks concurrent operations");
+                    Check(File.Exists(Engine.Full(root,Engine.StateFolder+"\\owner.txt")),"failed concurrent lock preserves active metadata for "+mode);
+                    File.WriteAllText(release,"release");
+                    Check(process.WaitForExit(10000)&&process.ExitCode==0,"child releases "+mode);
+                } finally {if(!process.HasExited)process.Kill();}
+            }
+            using(Engine.CollectionLock guard=Engine.Lock(root)) {}
+            Check(!Directory.Exists(Engine.Full(root,Engine.StateFolder)),"collection can be reused without leftover lock files after "+mode);
+        }
+        string unknown=Fixture("unknown-state-entry");
+        using(Engine.CollectionLock guard=Engine.Lock(unknown)) {Put(unknown,Engine.StateFolder+"\\user.epub","preserve");}
+        Check(Text(unknown,Engine.StateFolder+"\\user.epub")=="preserve"&&File.Exists(Engine.Full(unknown,Engine.StateFolder+"\\owner.txt")),"idle cleanup preserves unexpected entries and ownership marker");
     }
     static void Conflicts() {
         string root=Fixture("conflict");Put(root,"a.epub","A");Put(root,"b.epub","B");Put(root,"free.epub","F");Snapshot s=Capture(root);
@@ -104,7 +186,7 @@ public static class EngineTests {
             Engine.FaultHook=e=>{if(e==point&&!fired){fired=true;throw new IOException("Injected sharing failure");}};
             ExpectError(()=>Apply(root,saved),"injected "+point+" failure reported");Engine.FaultHook=null;
             Check(Equal(before,Tree(root)),"automatic rollback after "+point+" preserves arrangement and hashes");
-            Check(Engine.Pending(root).Count==0,"rollback journal finalized after "+point);
+            Check(Engine.Pending(root).Count==0&&!Directory.Exists(Engine.Full(root,Engine.StateFolder)),"rollback removes the entire recovery folder after "+point);
         }
         foreach(string point in new[]{"staged","placed"}) {
             string root=Fixture("crash-"+point);Put(root,"a.epub","A");Put(root,"b.epub","B");Snapshot saved=Capture(root);Cycle(root);
@@ -115,13 +197,13 @@ public static class EngineTests {
             Check(Engine.Pending(root).Count==1,"unfinished journal detected after "+point);
             ExpectError(()=>Apply(root,saved),"new restore refused until recovery after "+point);
             Engine.Recover(root,null);Check(Equal(before,Tree(root)),"recovery after process interruption preserves original hashes and arrangement");
-            Check(Engine.Pending(root).Count==0,"recovery is finalized");
+            Check(Engine.Pending(root).Count==0&&!Directory.Exists(Engine.Full(root,Engine.StateFolder)),"recovery is finalized and entire recovery folder removed");
         }
         string changed=Fixture("stale-preview");Put(changed,"a.epub","A");Snapshot s=Capture(changed);Move(changed,"a.epub","b.epub");
         Plan plan=Engine.Preview(changed,s,null);Put(changed,"new.epub","new");
         ExpectError(()=>Engine.Restore(plan,Write,null),"stale preview rejected before moving files");
         Check(File.Exists(Engine.Full(changed,"b.epub")),"stale preview causes no moves");
-        using(FileStream guard=Engine.Lock(changed))ExpectError(()=>Apply(changed,s),"concurrent operation blocked by folder lock");
+        using(Engine.CollectionLock guard=Engine.Lock(changed))ExpectError(()=>Apply(changed,s),"concurrent operation blocked by folder lock");
         string locked=Fixture("locked");Put(locked,"a.epub","A");
         using(FileStream guard=new FileStream(Engine.Full(locked,"a.epub"),FileMode.Open,FileAccess.ReadWrite,FileShare.None)) {
             Check(Engine.ScanFolder(locked,null).Errors.Count==1,"locked file produces readable scan error");

@@ -109,7 +109,7 @@ public class CreatorWindow:Form {
         string label=name.Text.Trim();Busy(true);status.Text="Scanning all subfolders and reading fingerprints...";
         try {
             string path=await Task.Run(()=>{
-                using(FileStream guard=Engine.Lock(root)) {
+                using(Engine.CollectionLock guard=Engine.Lock(root)) {
                     if(Engine.Pending(root).Count>0)throw new IOException("Recover the interrupted restore first by opening an existing restore script.");
                     Snapshot snapshot=Engine.Capture(root,label,Progress);
                     string safe=label;foreach(char c in Path.GetInvalidFileNameChars())safe=safe.Replace(c,'_');safe=safe.TrimEnd('.',' ');

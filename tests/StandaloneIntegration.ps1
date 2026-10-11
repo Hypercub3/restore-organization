@@ -32,3 +32,5 @@ $undoPlan=[RestoreOrganization.Engine]::Preview($root,$undoSnapshot,$null)
 [RestoreOrganization.Engine]::Restore($undoPlan,{param($saved,$target) [RestoreOrganization.Engine]::WriteScript($saved,$target,$code)},$null) | Out-Null
 if(-not [IO.File]::Exists([IO.Path]::Combine($root,'copied.epub'))) {throw 'Embedded undo did not restore the preceding arrangement.'}
 'PASS: independent embedded restore and undo under Windows PowerShell 5.1'
+
+if([IO.Directory]::Exists([IO.Path]::Combine($root,'.restore-organization'))) {throw 'Embedded restore or undo left a recovery folder after successful completion.'}

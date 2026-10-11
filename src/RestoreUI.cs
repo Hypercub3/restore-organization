@@ -30,7 +30,7 @@ public class RestoreWindow:Form {
     readonly Button restore=Ui.Button("Restore"),refresh=Ui.Button("Refresh preview"),recover=Ui.Button("Recover interrupted restore"),report=Ui.Button("Open report");
     Plan plan;
     bool busy;
-    string reportPath;
+    string reportText;
     public static void Run(string root,string json,string source) {
         Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
         Application.Run(new RestoreWindow(root,Engine.ReadSnapshot(json),source));
@@ -54,7 +54,13 @@ public class RestoreWindow:Form {
         refresh.Click+=async(s,e)=>await RefreshAsync();
         restore.Click+=async(s,e)=>await RestoreAsync();
         recover.Click+=async(s,e)=>await RecoverAsync();
-        report.Click+=(s,e)=>{try {System.Diagnostics.Process.Start(reportPath);}catch(Exception ex){Ui.Error(this,ex);}};
+        report.Click+=(s,e)=>{
+            using(Form f=new Form {Text="Restore Organization - report",StartPosition=FormStartPosition.CenterParent,Size=new Size(900,550),MinimumSize=new Size(540,280)}) {
+                TextBox text=new TextBox {Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Both,WordWrap=false,Dock=DockStyle.Fill,Text=reportText,Font=new Font("Segoe UI",10)};
+                Button close=new Button {Text="Close",Dock=DockStyle.Bottom,Height=38,DialogResult=DialogResult.OK};
+                f.Controls.Add(text);f.Controls.Add(close);f.AcceptButton=close;f.ShowDialog(this);
+            }
+        };
         FormClosing+=(s,e)=>{if(busy){e.Cancel=true;status.Text="Please wait for the current operation to finish before closing."; }};
     }
     void SetBusy(bool value) {
@@ -95,7 +101,7 @@ public class RestoreWindow:Form {
         try {
             Plan approved=plan;
             RestoreResult result=await Task.Run(()=>Engine.Restore(approved,(snap,path)=>Engine.WriteScript(snap,path,source),Progress));
-            reportPath=result.Report;report.Enabled=true;MessageBox.Show(this,result.Message,"Restore Organization",MessageBoxButtons.OK,MessageBoxIcon.Information);
+            reportText=result.ReportText;report.Enabled=true;MessageBox.Show(this,result.Message,"Restore Organization",MessageBoxButtons.OK,MessageBoxIcon.Information);
         } catch(Exception e) {Ui.Error(this,e);}
         finally {SetBusy(false);}
         await RefreshAsync();

@@ -70,7 +70,7 @@ public class Journal {
     public List<string> NewDirectories {get;set;}
 }
 public class RestoreResult {
-    public string Message, Report, Undo;
+    public string Message, ReportText, Undo;
     public int Moved;
 }
 public static class Engine {
@@ -273,19 +273,94 @@ public static class Engine {
         if(!File.Exists(marker)||new FileInfo(marker).Length>512||File.ReadAllText(marker,Encoding.UTF8)!=StateMarker)
             throw new IOException("An existing .restore-organization folder is not recognized as this application's recovery data. Move or rename that folder before using snapshots.");
     }
-    public static FileStream Lock(string root) {
-        string state=Full(root,StateFolder);NoLinks(root,state);
-        if(Directory.Exists(state))CheckState(root);
-        else {
-            Directory.CreateDirectory(state);
-            string marker=Path.Combine(state,"owner.txt");
-            using(FileStream s=new FileStream(marker,FileMode.CreateNew,FileAccess.Write,FileShare.Read)) {
-                byte[] bytes=Encoding.UTF8.GetBytes(StateMarker);s.Write(bytes,0,bytes.Length);s.Flush(true);
+    public sealed class CollectionLock:IDisposable {
+        readonly string root;
+        Mutex mutex;
+        FileStream file;
+        internal CollectionLock(string folder,Mutex gate,FileStream guard) {root=folder;mutex=gate;file=guard;}
+        public void Dispose() {
+            if(mutex==null)return;
+            try {
+                CleanupFinished(root);
+            } finally {
+                try {
+                    RemoveIdleState(root,file);
+                } finally {
+                    file.Dispose();file=null;
+                    mutex.ReleaseMutex();mutex.Dispose();mutex=null;
+                }
             }
         }
-        string path=Full(root,StateFolder+"\\operation.lock");NoLinks(root,path);
-        try {return new FileStream(path,FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);}
-        catch(IOException) {throw new IOException("Another snapshot or restore is using this folder. Close it and try again.");}
+    }
+    static string LockName(string root) {
+        string identity=RootPath(root).ToUpperInvariant();
+        // Physical directory identity also coordinates drive aliases and renamed collection roots.
+        using(SafeFileHandle h=CreateFile(root,0,7,IntPtr.Zero,3,0x02000000,IntPtr.Zero)) {
+            NativeInfo n;
+            if(!h.IsInvalid&&GetFileInformationByHandle(h,out n)&&(n.IndexHigh!=0||n.IndexLow!=0))
+                identity=n.Volume.ToString("x8")+":"+n.IndexHigh.ToString("x8")+n.IndexLow.ToString("x8")+":"+n.Creation.dwHighDateTime+":"+n.Creation.dwLowDateTime;
+        }
+        using(SHA256 sha=SHA256.Create())
+            return "Global\\RestoreOrganization-"+BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(identity))).Replace("-","");
+    }
+    public static CollectionLock Lock(string root) {
+        root=RootPath(root);
+        Mutex mutex=new Mutex(false,LockName(root));bool acquired=false;
+        FileStream guard=null;
+        try {
+            try {acquired=mutex.WaitOne(0);} catch(AbandonedMutexException) {acquired=true;}
+            if(!acquired)throw new IOException("Another snapshot or restore is using this folder. Close it and try again.");
+            string state=Full(root,StateFolder);NoLinks(root,state);
+            if(Directory.Exists(state))CheckState(root);
+            else {
+                Directory.CreateDirectory(state);
+                string marker=Path.Combine(state,"owner.txt");
+                using(FileStream s=new FileStream(marker,FileMode.CreateNew,FileAccess.Write,FileShare.Read)) {
+                    byte[] bytes=Encoding.UTF8.GetBytes(StateMarker);s.Write(bytes,0,bytes.Length);s.Flush(true);
+                }
+            }
+            string path=Full(root,StateFolder+"\\operation.lock");NoLinks(root,path);
+            // Retain the old file lock during operations so older scripts are still detected.
+            try {guard=new FileStream(path,FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);}
+            catch(IOException) {throw new IOException("Another snapshot or restore is using this folder. Close it and try again.");}
+            CleanupFinished(root);return new CollectionLock(root,mutex,guard);
+        } catch {
+            if(guard!=null)guard.Dispose();
+            if(acquired)mutex.ReleaseMutex();
+            mutex.Dispose();throw;
+        }
+    }
+    static void RemoveIdleState(string root,FileStream guard) {
+        string state=Full(root,StateFolder),marker=Path.Combine(state,"owner.txt");
+        bool markerRemoved=false;
+        try {
+            CheckState(root);if(!Directory.Exists(state))return;
+            string lockPath=Path.Combine(state,"operation.lock");
+            foreach(string entry in Directory.GetFileSystemEntries(state)) {
+                NoLinks(root,entry);
+                if(Directory.Exists(entry)||(!CI.Equals(entry,marker)&&!CI.Equals(entry,lockPath)))return;
+            }
+            if(guard.Length!=0)return;
+            // Remove ownership while the legacy file lock is still held: older scripts
+            // cannot pass their ownership check and start a restore during folder removal.
+            File.Delete(marker);markerRemoved=true;
+            guard.Dispose();
+            if(File.Exists(lockPath))File.Delete(lockPath);
+            Directory.Delete(state,false);
+        } catch(IOException) {} catch(UnauthorizedAccessException) {}
+        finally {
+            // A failed removal must leave recognizable data, including any new obstruction.
+            if(markerRemoved) {
+                try {
+                    NoLinks(root,state);NoLinks(root,marker);
+                    if(Directory.Exists(state)&&!File.Exists(marker)) {
+                        using(FileStream s=new FileStream(marker,FileMode.CreateNew,FileAccess.Write,FileShare.Read)) {
+                            byte[] bytes=Encoding.UTF8.GetBytes(StateMarker);s.Write(bytes,0,bytes.Length);s.Flush(true);
+                        }
+                    }
+                } catch(IOException) {} catch(UnauthorizedAccessException) {}
+            }
+        }
     }
     public static Journal ReadJournal(string root,string path) {
         NoLinks(root,path);Journal j=Serializer().Deserialize<Journal>(File.ReadAllText(path,Encoding.UTF8));
@@ -325,6 +400,36 @@ public static class Engine {
         if(File.Exists(path)) File.Replace(temp,path,null);else File.Move(temp,path);
     }
     static void Checkpoint(string path,Journal j,string eventName) {DurableWrite(path,Json(j));if(FaultHook!=null) FaultHook(eventName);}
+    // Called only while holding the collection lock. Retain anything uncertain.
+    static void CleanupFinished(string root) {
+        string runs=Full(root,StateFolder+"\\runs");
+        try {
+            NoLinks(root,runs);if(!Directory.Exists(runs))return;
+            foreach(string run in Directory.GetDirectories(runs)) {
+                try {
+                    NoLinks(root,run);string path=Path.Combine(run,"journal.json");NoLinks(root,path);
+                    if(!File.Exists(path))continue;
+                    Journal j=ReadJournal(root,path);
+                    if(j.State!="Completed"&&j.State!="Recovered")continue;
+                    string[] entries=Directory.GetFileSystemEntries(run);
+                    bool safe=true;
+                    foreach(string entry in entries) {
+                        NoLinks(root,entry);string name=Path.GetFileName(entry);
+                        if(Directory.Exists(entry)) {
+                            if((name!="stage"&&name!="foldercase")||Directory.GetFileSystemEntries(entry).Length!=0)safe=false;
+                        } else if(name!="journal.json"&&name!="report.txt"&&name!="journal.json.tmp"&&name!="report.txt.tmp")safe=false;
+                    }
+                    if(!safe)continue;
+                    // No recursive deletion: leftover staged files or unknown entries preserve the whole run.
+                    foreach(string entry in entries.Where(x=>x!=path)) {
+                        if(Directory.Exists(entry))Directory.Delete(entry,false);else File.Delete(entry);
+                    }
+                    File.Delete(path);Directory.Delete(run,false);
+                } catch(IOException) {} catch(UnauthorizedAccessException) {} catch(ArgumentException) {} catch(InvalidOperationException) {}
+            }
+            if(Directory.GetFileSystemEntries(runs).Length==0)Directory.Delete(runs,false);
+        } catch(IOException) {} catch(UnauthorizedAccessException) {}
+    }
     static void MoveNoOverwrite(string root,string source,string destination) {
         NoLinks(root,source);NoLinks(root,destination);
         for(int attempt=0;;attempt++) {
@@ -334,7 +439,7 @@ public static class Engine {
     }
     public static RestoreResult Restore(Plan approved,Action<Snapshot,string> writeScript,Action<string> progress) {
         string root=RootPath(approved.Root);
-        using(FileStream guard=Lock(root)) {
+        using(CollectionLock guard=Lock(root)) {
             if(Pending(root).Count>0) throw new IOException("An interrupted restore must be recovered first.");
             Plan plan=Preview(root,approved.Snapshot,progress);
             if(plan.Signature!=approved.Signature) throw new IOException("The folder changed after preview. Refresh the preview before restoring.");
@@ -393,22 +498,21 @@ public static class Engine {
                 }
                 foreach(string d in cleanup.OrderByDescending(x=>x.Length)) DeleteEmpty(root,d);
                 j.State="Completed";DurableWrite(journalPath,Json(j));completed=true;
-                string report=Path.Combine(run,"report.txt");StringBuilder log=new StringBuilder();
+                StringBuilder log=new StringBuilder();
                 log.AppendLine("Snapshot: "+plan.Snapshot.Name).AppendLine("Folder: "+root).AppendLine("UTC: "+DateTime.UtcNow.ToString("o"));
                 log.AppendLine("Moved and verified: "+moves.Count).AppendLine("Undo script: "+undo).AppendLine();
                 foreach(PlanItem item in plan.Items) log.AppendLine(item.Status+" | "+item.Source+" -> "+item.Destination+" | "+item.Detail);
-                DurableWrite(report,log.ToString());
-                return new RestoreResult {Moved=moves.Count,Undo=undo,Report=report,
+                return new RestoreResult {Moved=moves.Count,Undo=undo,ReportText=log.ToString(),
                     Message="Restoration completed. "+moves.Count+" files moved and content verified.\r\nSkipped and unmatched entries are listed in the report.\r\nAn independent undo script was saved in the collection folder."};
             } catch(Exception original) {
                 foreach(FileStream h in handles) h.Dispose();handles.Clear();
-                if(completed) throw new IOException("Files were restored and verified, but writing the report failed: "+original.Message,original);
+                if(completed) throw new IOException("Files were restored and verified, but preparing the report failed: "+original.Message,original);
                 try {RecoverOne(root,journalPath,progress);}
                 catch(Exception recovery) {
                     throw new IOException("Restore stopped. Automatic recovery could not finish. Keep .restore-organization and use Recover interrupted restore.\r\nCause: "+original.Message+"\r\nRecovery: "+recovery.Message,original);
                 }
                 throw new IOException("Restore stopped and moved files were returned to their previous locations.\r\n"+original.Message,original);
-            } finally {foreach(FileStream h in handles) h.Dispose();}
+            } finally {foreach(FileStream h in handles) h.Dispose();CleanupFinished(root);}
         }
     }
     static IEnumerable<string> SafeEntries(string root,string folder) {
@@ -433,7 +537,10 @@ public static class Engine {
         if(Directory.Exists(path)&&Directory.GetFileSystemEntries(path).Length==0) Directory.Delete(path,false);
     }
     public static void Recover(string root,Action<string> progress) {
-        root=RootPath(root);using(FileStream guard=Lock(root)) foreach(string path in Pending(root)) RecoverOne(root,path,progress);
+        root=RootPath(root);using(CollectionLock guard=Lock(root)) {
+            try {foreach(string path in Pending(root)) RecoverOne(root,path,progress);}
+            finally {CleanupFinished(root);}
+        }
     }
     static void RecoverOne(string root,string path,Action<string> progress) {
         Journal j=ReadJournal(root,path);
