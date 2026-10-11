@@ -4,6 +4,10 @@ A portable Windows application for saving and switching between named arrangemen
 
 ## Start here
 
+If you cloned this repository or downloaded its GitHub source ZIP, run **Launch Restore Organization.cmd** at the project root, or open **dist/Restore Organization.exe**. The complete runnable application, including the optional Explorer-menu components for x86, x64, and ARM64, is included; no build tools are needed to run it. Keep the files and subfolders inside **dist** together.
+
+For the separately packaged application ZIP, follow these steps:
+
 1. Open **Restore Organization.exe** in the extracted application folder.
 2. Choose the root of your ebook collection.
 3. Name the arrangement, for example **By Author**, and click **Create snapshot**.

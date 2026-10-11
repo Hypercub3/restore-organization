@@ -1,7 +1,29 @@
 .tools/
 build/
 tests/work/
-dist/
+# Track only the complete runnable bundle, not test or recovery artifacts.
+/dist/*
+!/dist/Restore Organization.exe
+!/dist/Restore Organization.exe.config
+!/dist/CertificateTrust.exe
+!/dist/ContextMenu.cer
+!/dist/ContextMenu.ps1
+!/dist/README.md
+!/dist/SnapshotCommand.dll
+!/dist/ContextMenu.msix
+!/dist/Assets/
+/dist/Assets/*
+!/dist/Assets/StoreLogo.png
+!/dist/Assets/Logo150.png
+!/dist/Assets/Logo44.png
+!/dist/architectures/
+/dist/architectures/*
+!/dist/architectures/x86/
+!/dist/architectures/x64/
+!/dist/architectures/arm64/
+/dist/architectures/*/*
+!/dist/architectures/*/SnapshotCommand.dll
+!/dist/architectures/*/ContextMenu.msix
 *.pfx
 *.key
 *.pem

@@ -1,0 +1,5 @@
+*.exe binary
+*.dll binary
+*.msix binary
+*.cer binary
+*.png binary

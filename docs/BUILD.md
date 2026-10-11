@@ -1,5 +1,9 @@
 # Build
 
+The repository includes a complete runnable bundle in **dist**. Run **Launch Restore Organization.cmd** from a fresh checkout to use it without rebuilding. Git tracks only the release executable, configuration, optional menu components, public certificate, assets, and instructions in that folder. Test executables, personal snapshot scripts, recovery data, compiler tools, and private signing keys remain excluded.
+
+The commands below rebuild the bundled application and can modify tracked release files. The portable creator needs only the Windows-provided compiler; rebuilding the optional shell component also requires the tools listed below.
+
 The portable creator is a .NET Framework 4.8 Windows Forms application. Its generated scripts embed the shared C# engine and restore UI, compile them in stock Windows PowerShell 5.1, and contain compressed snapshot data.
 
 ## Portable creator
