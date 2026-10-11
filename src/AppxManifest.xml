@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+ xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+ xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+ xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+ xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+ xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+ xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+ IgnorableNamespaces="uap uap10 rescap com desktop4 desktop5">
+ <Identity Name="Phill.RestoreOrganization.ContextMenu" Publisher="CN=Restore Organization Local" Version="1.0.3.0" ProcessorArchitecture="x64"/>
+ <Properties><DisplayName>Restore Organization</DisplayName><PublisherDisplayName>Restore Organization</PublisherDisplayName><Logo>Assets\StoreLogo.png</Logo></Properties>
+ <Resources><Resource Language="en-us"/></Resources>
+ <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0"/></Dependencies>
+ <Applications>
+  <Application Id="RestoreOrganization" Executable="Restore Organization.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+   <uap:VisualElements AppListEntry="none" DisplayName="Restore Organization" Description="Save and restore folder arrangements" BackgroundColor="transparent" Square150x150Logo="Assets\Logo150.png" Square44x44Logo="Assets\Logo44.png"/>
+   <Extensions>
+    <com:Extension Category="windows.comServer"><com:ComServer><com:SurrogateServer DisplayName="Restore Organization context menu"><com:Class Id="5812B34A-5AF8-4C61-854E-72E33A04E1E4" Path="SnapshotCommand.dll" ThreadingModel="STA"/></com:SurrogateServer></com:ComServer></com:Extension>
+    <desktop4:Extension Category="windows.fileExplorerContextMenus"><desktop4:FileExplorerContextMenus>
+     <desktop5:ItemType Type="Directory"><desktop5:Verb Id="CreateSnapshot" Clsid="5812B34A-5AF8-4C61-854E-72E33A04E1E4"/></desktop5:ItemType>
+     <desktop5:ItemType Type="Directory\Background"><desktop5:Verb Id="CreateSnapshotBackground" Clsid="5812B34A-5AF8-4C61-854E-72E33A04E1E4"/></desktop5:ItemType>
+    </desktop4:FileExplorerContextMenus></desktop4:Extension>
+   </Extensions>
+  </Application>
+ </Applications>
+ <Capabilities><rescap:Capability Name="runFullTrust"/><rescap:Capability Name="unvirtualizedResources"/></Capabilities>
+</Package>
+

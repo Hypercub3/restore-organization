@@ -1,0 +1,26 @@
+.tools/
+build/
+tests/work/
+dist/
+*.pfx
+*.key
+*.pem
+*.zip
+
+# Local IDE state and .NET build outputs
+.vs/
+bin/
+obj/
+*.user
+*.suo
+
+# Local configuration and credentials (keep safe examples trackable)
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Logs and Windows metadata
+*.log
+Thumbs.db
+Desktop.ini
