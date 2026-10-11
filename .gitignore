@@ -1,48 +1,40 @@
-.tools/
-build/
-tests/work/
-# Track only the complete runnable bundle, not test or recovery artifacts.
-/dist/*
-!/dist/Restore Organization.exe
-!/dist/Restore Organization.exe.config
-!/dist/CertificateTrust.exe
-!/dist/ContextMenu.cer
-!/dist/ContextMenu.ps1
-!/dist/README.md
-!/dist/SnapshotCommand.dll
-!/dist/ContextMenu.msix
-!/dist/Assets/
-/dist/Assets/*
-!/dist/Assets/StoreLogo.png
-!/dist/Assets/Logo150.png
-!/dist/Assets/Logo44.png
-!/dist/architectures/
-/dist/architectures/*
-!/dist/architectures/x86/
-!/dist/architectures/x64/
-!/dist/architectures/arm64/
-/dist/architectures/*/*
-!/dist/architectures/*/SnapshotCommand.dll
-!/dist/architectures/*/ContextMenu.msix
+# Workspace-local compilers, SDKs, downloaded tools, and signing material.
+# Reinstall build tools as documented in docs/BUILD.md; back up signing keys privately.
+/.tools/
+
+# Root build outputs only; do not hide source folders named build elsewhere.
+/build/*
+!/build/UpdateInstalledMenu.ps1
+/tests/work/
+
+# Track the runnable bundle and future runtime dependencies/assets by default.
+# Exclude test executables, personal snapshots, and recovery state from dist.
+/dist/*Tests.exe
+/dist/*Tests.exe.config
+
+# The packaged application is distributed through GitHub Releases.
+# ZIP files elsewhere (for example, test fixtures) remain trackable.
+/Restore Organization - Windows.zip
+
+# Private signing material must remain outside version control.
 *.pfx
 *.key
 *.pem
-*.zip
 
-# Local IDE state and .NET build outputs
+# Local IDE state and conventional .NET build outputs.
 .vs/
 bin/
 obj/
 *.user
 *.suo
 
-# Local configuration and credentials (keep safe examples trackable)
+# Local configuration and credentials (keep safe examples trackable).
 .env
 .env.*
 !.env.example
 !.env.sample
 
-# Logs and Windows metadata
+# Logs and Windows metadata.
 *.log
 Thumbs.db
 Desktop.ini
